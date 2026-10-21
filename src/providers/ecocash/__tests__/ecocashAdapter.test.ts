@@ -286,6 +286,10 @@ describe("EcoCashAdapter.requestPayment", () => {
 describe("EcoCashAdapter.getTransactionStatus", () => {
   const adapter = new EcoCashAdapter(adapterConfig);
 
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
   it.each([
     ["SUCCESS", "completed"],
     ["COMPLETED", "completed"],
@@ -300,11 +304,56 @@ describe("EcoCashAdapter.getTransactionStatus", () => {
     expect(result.status).toBe(expected);
   });
 
-  it("returns unknown when the status query fails", async () => {
+  it("returns unknown when the status query fails with a non-retryable error", async () => {
     axiosMock.get.mockRejectedValueOnce(new Error("network error"));
 
     const result = await adapter.getTransactionStatus("ref-1");
 
     expect(result.status).toBe("unknown");
+    expect(axiosMock.get).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a transient 504 from the status endpoint via retryWithJitter (#2367), then resolves", async () => {
+    jest.useFakeTimers();
+    try {
+      axiosMock.get
+        .mockRejectedValueOnce(
+          Object.assign(new Error("Gateway Timeout"), {
+            response: { status: 504 },
+          }),
+        )
+        .mockResolvedValueOnce({ data: { status: "SUCCESS" } });
+
+      const resultPromise = adapter.getTransactionStatus("ref-retry");
+      // Let the retry's backoff sleep elapse (max possible delay is 10s).
+      await jest.advanceTimersByTimeAsync(10_000);
+      const result = await resultPromise;
+
+      expect(result.status).toBe("completed");
+      expect(axiosMock.get).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("gives up and returns unknown after exhausting retries on a persistent 502", async () => {
+    jest.useFakeTimers();
+    try {
+      axiosMock.get.mockRejectedValue(
+        Object.assign(new Error("Bad Gateway"), {
+          response: { status: 502 },
+        }),
+      );
+
+      const resultPromise = adapter.getTransactionStatus("ref-persistent");
+      await jest.advanceTimersByTimeAsync(60_000);
+      const result = await resultPromise;
+
+      expect(result.status).toBe("unknown");
+      // Default retryWithJitter: 1 initial attempt + 3 retries = 4 calls.
+      expect(axiosMock.get).toHaveBeenCalledTimes(4);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
