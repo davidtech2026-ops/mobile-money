@@ -8,8 +8,7 @@ import {
 } from "./config/serverConfig";
 import { createError, errorHandler } from "./middleware/errorHandler";
 import { timeoutErrorHandler } from "./middleware/timeout";
-import { ERROR_CODES } from "./constants/errorCodes";
-import logger from "./utils/logger";
+import { sanitizationMiddleware } from "./middleware/sanitization";
 
 /**
  * Creates and configures a fully setup Express Application instance.
@@ -18,6 +17,7 @@ export function createConfiguredServer(
   options?: ServerConfigOptions,
 ): Application {
   const app = express();
+  app.use(sanitizationMiddleware);
   setupServerConfig(app, options);
   return app;
 }
