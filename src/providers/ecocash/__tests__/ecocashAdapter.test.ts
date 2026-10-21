@@ -9,6 +9,16 @@ import {
 jest.mock("axios");
 const axiosMock = axios as jest.Mocked<typeof axios>;
 
+// #2365: disburse() schedules a status-poll fallback job via BullMQ after a
+// successful submission. These adapter tests exercise the HTTP/signing
+// logic in isolation, so the queue is mocked rather than hitting a real
+// Redis connection (which would hang in CI without one).
+const scheduleEcoCashStatusPollMock = jest.fn().mockResolvedValue(undefined);
+jest.mock("../../../queue/ecocashStatusPollingQueue", () => ({
+  scheduleEcoCashStatusPoll: (...args: unknown[]) =>
+    scheduleEcoCashStatusPollMock(...args),
+}));
+
 function createMockAxiosError(
   status: number,
   data?: Record<string, unknown>,
@@ -119,6 +129,47 @@ describe("EcoCashAdapter.disburse", () => {
     });
     expect(typeof body.signature).toBe("string");
     expect(options).toMatchObject({ timeout: 5_000 });
+  });
+
+  it("schedules a status-poll fallback job after a successful disbursement (#2365)", async () => {
+    axiosMock.post.mockResolvedValueOnce({
+      data: { transactionId: "eco-txn-poll-1", resultCode: "0" },
+    });
+    const adapter = new EcoCashAdapter({ ...adapterConfig, privateKey });
+
+    await adapter.disburse("+263771234567", "150.00", "USD", "ref-poll-1");
+
+    expect(scheduleEcoCashStatusPollMock).toHaveBeenCalledWith(
+      "eco-txn-poll-1",
+    );
+  });
+
+  it("does not fail the disbursement if scheduling the status poll throws", async () => {
+    axiosMock.post.mockResolvedValueOnce({
+      data: { transactionId: "eco-txn-poll-2", resultCode: "0" },
+    });
+    scheduleEcoCashStatusPollMock.mockRejectedValueOnce(
+      new Error("redis unavailable"),
+    );
+    const adapter = new EcoCashAdapter({ ...adapterConfig, privateKey });
+
+    const result = await adapter.disburse(
+      "+263771234567",
+      "150.00",
+      "USD",
+      "ref-poll-2",
+    );
+
+    expect(result.success).toBe(true);
+  });
+
+  it("does not attempt to schedule a status poll when the disbursement request fails validation", async () => {
+    const adapter = new EcoCashAdapter({ ...adapterConfig, privateKey });
+
+    await adapter.disburse("+1234567890", "150.00", "USD", "ref-invalid");
+
+    expect(axiosMock.post).not.toHaveBeenCalled();
+    expect(scheduleEcoCashStatusPollMock).not.toHaveBeenCalled();
   });
 
   it("supports disbursing from the ZWL wallet", async () => {
