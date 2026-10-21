@@ -7,6 +7,8 @@ import {
   ProviderTransactionStatus,
 } from "../../services/mobilemoney/mobileMoneyService";
 import { resolveEcoCashErrorFromResponse } from "../../services/providers/errors/ecocashErrorMatrix";
+import { scheduleEcoCashStatusPoll } from "../../queue/ecocashStatusPollingQueue";
+import { retryWithJitter } from "../../utils/retryWithJitter";
 
 /**
  * Econet EcoCash disbursement adapter for Zimbabwe (USD / ZWL wallets) --
@@ -211,10 +213,27 @@ export class EcoCashAdapter implements MobileMoneyProvider {
         "EcoCash: Disbursement submitted",
       );
 
+      const transactionId = body.transactionId ?? reference;
+
+      // #2365: EcoCash's async webhook notification occasionally never
+      // arrives for a pending USSD push. Schedule a background polling
+      // fallback so the transaction still resolves even without the
+      // webhook. Scheduling failure (e.g. Redis briefly unavailable) is
+      // logged but doesn't fail the disbursement call itself -- the
+      // disbursement was already accepted by EcoCash.
+      try {
+        await scheduleEcoCashStatusPoll(transactionId);
+      } catch (schedulingError) {
+        log.error(
+          { schedulingError },
+          "EcoCash: Failed to schedule status-poll fallback",
+        );
+      }
+
       return {
         success: true,
         data: {
-          transactionId: body.transactionId ?? reference,
+          transactionId,
           resultCode: body.resultCode ?? "PENDING",
           resultDesc: body.resultDesc ?? "Disbursement accepted",
         },
@@ -285,11 +304,17 @@ export class EcoCashAdapter implements MobileMoneyProvider {
     log.info(maskPII({ referenceId }), "EcoCash: Querying transaction status");
 
     try {
-      const response = await axios.get(this.joinUrl(this.statusPath), {
-        params: { merchantCode: this.merchantCode, reference: referenceId },
-        headers: { "Content-Type": "application/json" },
-        timeout: this.timeoutMs,
-      });
+      // #2367: status lookups are read-only (idempotent), so a transient
+      // 502/503/504 or network timeout here is always safe to retry --
+      // unlike disburse() above, there is no risk of double-submitting a
+      // payment.
+      const response = await retryWithJitter(() =>
+        axios.get(this.joinUrl(this.statusPath), {
+          params: { merchantCode: this.merchantCode, reference: referenceId },
+          headers: { "Content-Type": "application/json" },
+          timeout: this.timeoutMs,
+        }),
+      );
 
       const status = (
         response.data?.status as string | undefined
