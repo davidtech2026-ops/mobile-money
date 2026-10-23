@@ -28,9 +28,11 @@ import {
 } from "./receivingAnchorWebhookWorker";
 import { closeReceivingAnchorWebhookQueue } from "../services/webhookService";
 import { stopRedisBackpressureMonitor } from "./redisBackpressure";
+import { stopTransactionOutboxRelay } from "./transactionOutbox";
 
 export async function shutdownQueue(): Promise<void> {
   stopRedisBackpressureMonitor();
+  stopTransactionOutboxRelay();
   await Promise.all([
     closeWorker().catch(() => undefined),
     closeSyncWorker().catch(() => undefined),
@@ -47,6 +49,8 @@ export async function shutdownQueue(): Promise<void> {
 export {
   transactionQueue,
   addTransactionJob,
+  dispatchTransactionJob,
+  startTransactionOutboxRelay,
   addTransactionToQueue,
   calculateTransactionPriority,
   getJobById,

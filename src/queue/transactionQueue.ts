@@ -10,6 +10,12 @@ import {
 import { VipTier } from "../utils/fees";
 import { calculateTransactionPriority } from "./priority";
 import { createBackpressureError, isBackpressureActive, isCriticalPriority } from "./redisBackpressure";
+import {
+  enqueueWithOutboxFallback,
+  startTransactionOutboxRelay as startOutboxRelay,
+} from "./transactionOutbox";
+
+export { stopTransactionOutboxRelay } from "./transactionOutbox";
 
 export { calculateTransactionPriority };
 
@@ -74,8 +80,31 @@ export const transactionQueue = new Queue<
  * Enqueue a transaction for processing.
  * Accepts optional priority (1-10) or auto-calculates from tier / amount.
  * Returns a job-shaped result so callers can surface a jobId.
+ *
+ * If Redis is unreachable the job is persisted to the PostgreSQL outbox
+ * instead (`outboxed: true`) and replayed by the outbox relay on recovery.
  */
 export async function addTransactionJob(
+  data: TransactionJobData,
+  options?: {
+    priority?: number;
+    delay?: number;
+    repeat?: { every: number };
+    jobId?: string;
+  },
+): Promise<{ id: string | undefined; outboxed?: boolean }> {
+  // Repeatable schedules can't be replayed from the outbox as one-shot jobs.
+  if (options?.repeat) return dispatchTransactionJob(data, options);
+  return enqueueWithOutboxFallback(dispatchTransactionJob, data, options);
+}
+
+/** Start replaying outboxed transactions onto the queue. Idempotent. */
+export function startTransactionOutboxRelay(intervalMs?: number): void {
+  startOutboxRelay(dispatchTransactionJob, { intervalMs });
+}
+
+/** Enqueue straight onto Redis/BullMQ, with no outbox fallback. */
+export async function dispatchTransactionJob(
   data: TransactionJobData,
   options?: {
     priority?: number;

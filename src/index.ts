@@ -688,8 +688,10 @@ async function initializeRuntime(): Promise<void> {
       startRefundWorker,
       startReceivingAnchorWebhookWorker,
       startRedisBackpressureMonitor,
+      startTransactionOutboxRelay,
     } = await import("./queue/index.js");
     startRedisBackpressureMonitor();
+    startTransactionOutboxRelay();
     startProviderBalanceAlertWorker();
     startAccountingTokenRefreshWorker();
     startWebhookRetryWorker();
