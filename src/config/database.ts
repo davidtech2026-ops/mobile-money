@@ -42,7 +42,7 @@ const PRIMARY_POOL_MAX_RETRIES = parseInt(
   10,
 );
 const MAX_CONNECTIONS = parseInt(
-  process.env.DB_MAX_CONNECTIONS || "50",
+  process.env.DB_MAX_CONNECTIONS || "30",
   10,
 );
 const POOL_MAX_USES = parseInt(
@@ -60,11 +60,21 @@ const STATEMENT_TIMEOUT_MS = parseInt(
 const POOL_ALLOW_EXIT_ON_IDLE =
   process.env.DB_POOL_ALLOW_EXIT_ON_IDLE === "true";
 const POOL_IDLE_TIMEOUT_MS = parseInt(
-  process.env.DB_POOL_IDLE_TIMEOUT_MS || "15000",
+  process.env.DB_POOL_IDLE_TIMEOUT_MS || "30000",
   10,
 );
 const POOL_CONNECTION_TIMEOUT_MS = parseInt(
-  process.env.DB_POOL_CONNECTION_TIMEOUT_MS || "30000",
+  process.env.DB_POOL_CONNECTION_TIMEOUT_MS || "5000",
+  10,
+);
+// Enables TCP keepalive on pool sockets so broken idle connections (e.g. a
+// NAT/firewall or failover silently dropping the TCP session) are detected
+// and reset at the OS level, instead of surfacing as a hang the next time a
+// worker tries to use that connection (#2377).
+const POOL_KEEP_ALIVE =
+  process.env.DB_POOL_KEEP_ALIVE !== "false";
+const POOL_KEEP_ALIVE_INITIAL_DELAY_MS = parseInt(
+  process.env.DB_POOL_KEEP_ALIVE_INITIAL_DELAY_MS || "10000",
   10,
 );
 const REPLICA_IDLE_TIMEOUT_MS = parseInt(
@@ -634,6 +644,8 @@ function getPoolOptions(overrides: Partial<{
   allowExitOnIdle: boolean;
   query_timeout: number;
   statement_timeout: number;
+  keepAlive: boolean;
+  keepAliveInitialDelayMillis: number;
 }> = {}): object {
   return {
     connectionString: IS_SANDBOX
@@ -648,6 +660,10 @@ function getPoolOptions(overrides: Partial<{
     allowExitOnIdle: overrides.allowExitOnIdle ?? POOL_ALLOW_EXIT_ON_IDLE,
     query_timeout: overrides.query_timeout ?? QUERY_TIMEOUT_MS,
     statement_timeout: overrides.statement_timeout ?? STATEMENT_TIMEOUT_MS,
+    keepAlive: overrides.keepAlive ?? POOL_KEEP_ALIVE,
+    keepAliveInitialDelayMillis:
+      overrides.keepAliveInitialDelayMillis ??
+      POOL_KEEP_ALIVE_INITIAL_DELAY_MS,
   };
 }
 

@@ -233,4 +233,82 @@ describe("Transactions and Connection Timeouts (#1596)", () => {
     expect(mockQuery).toHaveBeenCalledWith('ROLLBACK');
     expect(mockRelease).toHaveBeenCalledTimes(1);
   });
+
+  describe("pool eviction policy (#2377)", () => {
+    it("enables TCP keepalive on the primary pool by default", () => {
+      delete process.env.DB_POOL_KEEP_ALIVE;
+      jest.isolateModules(() => {
+        const config = require("../../config/database");
+        expect(config.pool.options.keepAlive).toBe(true);
+        expect(
+          config.pool.options.keepAliveInitialDelayMillis,
+        ).toBeGreaterThan(0);
+      });
+    });
+
+    it("disables keepalive when DB_POOL_KEEP_ALIVE is explicitly false", () => {
+      process.env.DB_POOL_KEEP_ALIVE = "false";
+      jest.isolateModules(() => {
+        const config = require("../../config/database");
+        expect(config.pool.options.keepAlive).toBe(false);
+      });
+    });
+
+    it("recovers (returns false, does not throw) when a connection drop is simulated", async () => {
+      let config: any;
+      jest.isolateModules(() => {
+        config = require("../../config/database");
+      });
+
+      const dropError: Error & { code?: string } = new Error(
+        "Connection terminated unexpectedly",
+      );
+      dropError.code = "ECONNRESET";
+
+      jest.spyOn(config.pool, "connect").mockRejectedValue(dropError);
+
+      const healthy = await config.pingDatabasePool(config.pool);
+
+      expect(healthy).toBe(false);
+    });
+
+    it("reports healthy when the ping query succeeds", async () => {
+      let config: any;
+      jest.isolateModules(() => {
+        config = require("../../config/database");
+      });
+
+      const mockRelease = jest.fn();
+      const mockQuery = jest.fn().mockResolvedValue({ rows: [{ "?column?": 1 }] });
+      jest.spyOn(config.pool, "connect").mockResolvedValue({
+        query: mockQuery,
+        release: mockRelease,
+      } as any);
+
+      const healthy = await config.pingDatabasePool(config.pool);
+
+      expect(healthy).toBe(true);
+      expect(mockQuery).toHaveBeenCalledWith("SELECT 1");
+      expect(mockRelease).toHaveBeenCalledTimes(1);
+    });
+
+    it("starts and stops the periodic health check loop without throwing", () => {
+      let config: any;
+      jest.isolateModules(() => {
+        config = require("../../config/database");
+      });
+
+      const mockRelease = jest.fn();
+      const mockQuery = jest.fn().mockResolvedValue({ rows: [] });
+      jest.spyOn(config.pool, "connect").mockResolvedValue({
+        query: mockQuery,
+        release: mockRelease,
+      } as any);
+
+      expect(() => {
+        config.startPoolHealthCheck(1000);
+        config.stopPoolHealthCheck();
+      }).not.toThrow();
+    });
+  });
 });
