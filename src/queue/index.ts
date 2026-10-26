@@ -13,6 +13,7 @@ import {
 import { connection } from "./config";
 import { startProviderBalanceAlertWorker } from "./providerBalanceAlertWorker";
 import { scheduleProviderBalanceAlertJob } from "./providerBalanceAlertQueue";
+import { startScheduledJobs } from "./scheduler";
 import {
   startAccountingTokenRefreshWorker,
   closeAccountingTokenRefreshWorker,
@@ -98,6 +99,7 @@ export { queueOptions } from "./config";
 export { deadLetterQueue, DLQ_NAME, capturePersistentFailure } from "./dlq";
 export { startDlqMonitor, stopDlqMonitor, replayDlqJob } from "./dlqWorker";
 export { startProviderBalanceAlertWorker, scheduleProviderBalanceAlertJob };
+export { startScheduledJobs };
 
 // Accounting Retry Queue Exports
 export {

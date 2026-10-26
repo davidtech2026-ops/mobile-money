@@ -689,6 +689,7 @@ async function initializeRuntime(): Promise<void> {
       startReceivingAnchorWebhookWorker,
       startRedisBackpressureMonitor,
       startTransactionOutboxRelay,
+      startScheduledJobs,
     } = await import("./queue/index.js");
     startRedisBackpressureMonitor();
     startTransactionOutboxRelay();
@@ -699,6 +700,8 @@ async function initializeRuntime(): Promise<void> {
     startReceivingAnchorWebhookWorker();
     await scheduleProviderBalanceAlertJob();
     console.log("Provider balance alert queue initialized");
+    await startScheduledJobs();
+    console.log("Float reconciliation job initialized");
 
     // STK push query polling fallback (#1969): poll `stkpushquery` when the
     // callback does not arrive within 30s. Safe to start unconditionally —
