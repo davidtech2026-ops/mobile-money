@@ -92,3 +92,7 @@ __pycache__/
 
 # ── Soroban deployment config (may reference admin keys) ──
 config/contracts.json
+
+# ── Local SSH & Setup ─────────────────────────────
+github_keys/
+setup_github_ssh.sh
