@@ -199,7 +199,7 @@
   },
   "devDependencies": {
     "@aws-sdk/client-kms": "^3.1036.0",
-    "@cloudflare/workers-types": "^4.20250422.0",
+    "@cloudflare/workers-types": "^5.20261023.1",
     "@commitlint/cli": "^19.8.1",
     "@commitlint/config-conventional": "^19.8.1",
     "@eslint/eslintrc": "^3.3.5",
